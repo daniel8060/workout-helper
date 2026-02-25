@@ -76,18 +76,39 @@ def read_recent_workouts(
     # Current live sheet format:
     # Week | Date | Day Type | Exercise | Set | ... | Notes
     if {"date", "day type", "exercise", "set"}.issubset(set(idx.keys())):
+        # Forward-fill these fields so sparse logging (blank repeated cells) still parses.
+        ff = {"week": "", "date": "", "day_type": "", "exercise": ""}
         for row in body:
-            date = _cell(row, idx, "date").strip()
-            day_type = _cell(row, idx, "day type").strip()
-            exercise = _cell(row, idx, "exercise").strip()
+            raw_date = _cell(row, idx, "date").strip()
+            raw_day_type = _cell(row, idx, "day type").strip()
+            raw_exercise = _cell(row, idx, "exercise").strip()
             set_num = _cell(row, idx, "set").strip()
-            week = _cell(row, idx, "week").strip()
+            raw_week = _cell(row, idx, "week").strip()
+            weight_lbs = _cell(row, idx, "weight (lbs)").strip()
+            reps = _cell(row, idx, "reps").strip()
             sheet_notes = _cell(row, idx, "notes").strip()
 
-            # Ignore malformed/freeform trailing rows and prior AI rows.
+            if raw_week:
+                ff["week"] = raw_week
+            if raw_date:
+                ff["date"] = raw_date
+            if raw_day_type:
+                ff["day_type"] = raw_day_type
+            if raw_exercise:
+                ff["exercise"] = raw_exercise
+
+            week = ff["week"]
+            date = ff["date"]
+            day_type = ff["day_type"]
+            exercise = ff["exercise"]
+
+            # Ignore malformed/freeform rows and prior AI rows.
             if not day_type or not exercise:
                 continue
             if day_type.lower() in {"ai plan", "ai_plan"}:
+                continue
+            # Avoid turning note-only rows into fake workouts after forward fill.
+            if not any([set_num, weight_lbs, reps, raw_day_type, raw_exercise]):
                 continue
 
             workout = f"{day_type}: {exercise}"

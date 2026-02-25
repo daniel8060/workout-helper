@@ -1,0 +1,12 @@
+[project]
+name = "workout-helper"
+version = "0.1.0"
+description = "Simple workout tracker using Streamlit, OpenAI, and Google Sheets"
+requires-python = ">=3.11"
+dependencies = [
+  "streamlit==1.42.0",
+  "openai==1.63.2",
+  "google-api-python-client==2.161.0",
+  "google-auth==2.38.0",
+  "python-dotenv==1.0.1",
+]

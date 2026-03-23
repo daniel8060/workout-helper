@@ -8,7 +8,7 @@ import streamlit as st
 from dotenv import load_dotenv
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-from openai import OpenAI
+import anthropic
 
 
 load_dotenv()
@@ -150,39 +150,61 @@ def _parse_response_json(content: str) -> Dict[str, Any]:
         return json.loads(cleaned)
 
 
+_WORKOUT_PLAN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "tips": {"type": "string"},
+        "workout_plan": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "week": {"type": "string"},
+                    "date": {"type": "string"},
+                    "day_type": {"type": "string"},
+                    "exercise": {"type": "string"},
+                    "set": {"type": "string"},
+                    "weight_lbs": {"type": "string"},
+                    "reps": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["week", "date", "day_type", "exercise", "set", "weight_lbs", "reps", "notes"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["tips", "workout_plan"],
+    "additionalProperties": False,
+}
+
+
 def generate_advice_and_next_workout(workouts: List[Dict[str, str]]) -> Dict[str, Any]:
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-2025-04-14")
-    client = OpenAI(api_key=require_env("OPENAI_API_KEY"))
+    client = anthropic.Anthropic(api_key=require_env("ANTHROPIC_API_KEY"))
 
     prompt = (
-        "You are a practical fitness coach. Analyze these recent workouts and respond with JSON only.\n"
-        "Return object keys:\n"
-        "- tips (string)\n"
-        "- workout_plan (array of rows)\n"
-        "Each workout_plan row must include exactly these keys:\n"
-        "week, date, day_type, exercise, set, weight_lbs, reps, notes\n"
+        "Analyze these recent workouts and produce a personalized tips string and a next workout plan.\n"
         "Use date format YYYY-MM-DD. Keep all values as strings.\n"
         f"Recent workouts: {json.dumps(workouts)}"
     )
 
-    response = client.responses.create(
-        model=model,
-        temperature=0.4,
-        input=[
-            {
-                "role": "system",
-                "content": "You are an practical fitness coach.  You have the demeanor of a gruff high school football coach. Return valid JSON only.",
-            },
-            {"role": "user", "content": prompt},
-        ],
-    )
-    parsed = _parse_response_json(response.output_text)
-    plan_rows = parsed.get("workout_plan", [])
-    if not isinstance(plan_rows, list):
-        plan_rows = []
+    with client.messages.stream(
+        model="claude-opus-4-6",
+        max_tokens=16000,
+        thinking={"type": "adaptive"},
+        system=(
+            "You are a practical fitness coach with the demeanor of a gruff high school football coach. "
+            "Respond only with valid JSON matching the provided schema."
+        ),
+        messages=[{"role": "user", "content": prompt}],
+        output_config={"format": {"type": "json_schema", "name": "workout_response", "schema": _WORKOUT_PLAN_SCHEMA}},
+    ) as stream:
+        response = stream.get_final_message()
+
+    text = next(b.text for b in response.content if b.type == "text")
+    parsed = json.loads(text)
 
     normalized_rows: List[Dict[str, str]] = []
-    for row in plan_rows:
+    for row in parsed.get("workout_plan", []):
         if not isinstance(row, dict):
             continue
         nrow = {_normalize_key(k): str(v).strip() for k, v in row.items()}
